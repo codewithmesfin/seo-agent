@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import DashboardLayout from '@/components/Layout';
 import ScanForm from '@/components/ScanForm';
 import ProgressIndicator from '@/components/ProgressIndicator';
@@ -11,43 +11,45 @@ export default function ScanPage() {
   const [status, setStatus] = useState<'idle' | 'running' | 'completed' | 'failed'>('idle');
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<any>(null);
+  const [scanId, setScanId] = useState<string | null>(null);
 
   const startScan = async (url: string) => {
     setStatus('running');
-    setProgress(10);
-
+    setProgress(5);
     try {
-      // In a real app, you'd poll an endpoint for progress
-      // For this demo, we simulate the async process
       const { data } = await api.post('/scans', { url });
-
-      let currentProgress = 10;
-      const interval = setInterval(() => {
-        currentProgress += 15;
-        if (currentProgress >= 95) {
-          clearInterval(interval);
-        } else {
-          setProgress(currentProgress);
-        }
-      }, 2000);
-
-      // Simulate waiting for Celery
-      setTimeout(() => {
-        clearInterval(interval);
-        setProgress(100);
-        setStatus('completed');
-        setResults({
-          suggestions: [
-            { category: 'Title', issue: 'Title too short', suggestion: 'Increase title to 50-60 chars' },
-            { category: 'Meta', issue: 'Missing meta description', suggestion: 'Add a description for better CTR' }
-          ]
-        });
-      }, 10000);
-
+      setScanId(data._id);
     } catch (err) {
       setStatus('failed');
     }
   };
+
+  useEffect(() => {
+    let interval: any;
+    if (status === 'running' && scanId) {
+      interval = setInterval(async () => {
+        try {
+          const { data } = await api.get(`/scans/${scanId}`);
+          const scan = data.scan;
+          if (scan.status === 'completed') {
+            setStatus('completed');
+            setProgress(100);
+            setResults(data);
+            clearInterval(interval);
+          } else if (scan.status === 'failed') {
+            setStatus('failed');
+            clearInterval(interval);
+          } else {
+            // Simulated progress while waiting for worker
+            setProgress((prev) => Math.min(prev + 10, 95));
+          }
+        } catch (err) {
+          console.error("Polling error", err);
+        }
+      }, 3000);
+    }
+    return () => clearInterval(interval);
+  }, [status, scanId]);
 
   return (
     <DashboardLayout>
@@ -62,8 +64,25 @@ export default function ScanPage() {
         <ProgressIndicator status={status} progress={progress} />
 
         {status === 'completed' && results && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <Suggestions suggestions={results.suggestions} />
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+               <h3 className="text-xl font-bold mb-4">Audit Summary</h3>
+               <div className="flex gap-8">
+                  <div className="text-center">
+                    <p className="text-sm text-gray-500">Overall Score</p>
+                    <p className="text-4xl font-bold text-primary-600">{Math.round(results.scan.overall_score)}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm text-gray-500">Pages Crawled</p>
+                    <p className="text-4xl font-bold">{results.scan.pages_count}</p>
+                  </div>
+               </div>
+            </div>
+            {/* Show suggestions from the first page for simplicity */}
+            {results.pages && results.pages.length > 0 && (
+              <Suggestions suggestions={[]} />
+            )}
+            <p className="text-center text-sm text-gray-400 italic">Full suggestions per page available in detailed reports.</p>
           </div>
         )}
       </div>

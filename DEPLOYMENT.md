@@ -3,7 +3,6 @@
 ## Prerequisites
 - Docker & Docker Compose
 - Domain name and SSL certificates (handled by Nginx/Certbot)
-- Google PageSpeed Insights API Key
 - MongoDB Atlas (optional, for managed DB) or self-hosted MongoDB
 
 ## Steps to Deploy

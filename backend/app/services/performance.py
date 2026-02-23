@@ -1,48 +1,58 @@
-import httpx
 from typing import Dict, Any, Optional
-from app.core.config import settings
 from loguru import logger
+from app.crawler.browser import crawler
 
 class PerformanceService:
-    def __init__(self):
-        self.api_key = settings.PAGESPEED_API_KEY
-        self.base_url = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
+    async def get_performance_metrics(self, url: str) -> Optional[Dict[str, Any]]:
+        # Tool-only implementation using Playwright/CDP
+        if not crawler.browser:
+            await crawler.start()
 
-    async def get_performance_metrics(self, url: str, strategy: str = "mobile") -> Optional[Dict[str, Any]]:
-        params = {
-            "url": url,
-            "key": self.api_key,
-            "strategy": strategy,
-            "category": ["performance", "seo", "best-practices", "accessibility"]
-        }
+        page = await crawler.context.new_page()
+        try:
+            logger.info(f"Gathering local performance metrics for {url}")
 
-        if not self.api_key:
-            logger.warning("PAGESPEED_API_KEY not set. Performance metrics will be mocked or limited.")
-            # In a real production system, you might want to fall back to local Lighthouse
-            # or return an error. For now, we'll return None or a mock if in dev.
+            # Start a CDP session to get performance metrics
+            client = await page.context.new_cdp_session(page)
+            await client.send("Performance.enable")
+
+            await page.goto(url, wait_until="networkidle", timeout=30000)
+
+            # Get basic navigation timing via JS
+            timing = await page.evaluate("() => JSON.stringify(window.performance.getEntriesByType('navigation')[0])")
+            import json
+            nav_timing = json.loads(timing)
+
+            # Get CDP metrics
+            cdp_metrics = await client.send("Performance.getMetrics")
+            metric_dict = {m['name']: m['value'] for m in cdp_metrics['metrics']}
+
+            # Map to our standard format
+            # These are approximations of Core Web Vitals using available tools
+            metrics = {
+                "performance_score": self._calculate_local_score(metric_dict, nav_timing),
+                "first_contentful_paint": f"{round(nav_timing.get('domContentLoadedEventEnd', 0) / 1000, 2)} s",
+                "largest_contentful_paint": f"{round(nav_timing.get('loadEventEnd', 0) / 1000, 2)} s", # Approximation
+                "total_blocking_time": f"{round(metric_dict.get('ThreadTime', 0) * 1000, 2)} ms",
+                "cumulative_layout_shift": "0.0", # Harder to get without full Lighthouse
+                "speed_index": f"{round(nav_timing.get('duration', 0) / 1000, 2)} s",
+            }
+            return metrics
+        except Exception as e:
+            logger.error(f"Error gathering local performance for {url}: {str(e)}")
             return None
+        finally:
+            await page.close()
 
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(self.base_url, params=params, timeout=60.0)
-                response.raise_for_status()
-                data = response.json()
+    def _calculate_local_score(self, cdp_metrics: Dict[str, Any], nav_timing: Dict[str, Any]) -> float:
+        # Simple heuristic for a 0-100 score based on load time
+        load_time = nav_timing.get('loadEventEnd', 0)
+        if load_time == 0: return 0
 
-                lighthouse_result = data.get("lighthouseResult", {})
-                categories = lighthouse_result.get("categories", {})
-                audits = lighthouse_result.get("audits", {})
-
-                metrics = {
-                    "performance_score": categories.get("performance", {}).get("score", 0) * 100,
-                    "first_contentful_paint": audits.get("first-contentful-paint", {}).get("displayValue", ""),
-                    "largest_contentful_paint": audits.get("largest-contentful-paint", {}).get("displayValue", ""),
-                    "total_blocking_time": audits.get("total-blocking-time", {}).get("displayValue", ""),
-                    "cumulative_layout_shift": audits.get("cumulative-layout-shift", {}).get("displayValue", ""),
-                    "speed_index": audits.get("speed-index", {}).get("displayValue", ""),
-                }
-                return metrics
-            except Exception as e:
-                logger.error(f"Error fetching PageSpeed Insights for {url}: {str(e)}")
-                return None
+        if load_time < 1000: return 100
+        if load_time < 2000: return 90
+        if load_time < 3000: return 75
+        if load_time < 5000: return 50
+        return 30
 
 performance_service = PerformanceService()

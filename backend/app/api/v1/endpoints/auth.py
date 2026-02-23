@@ -6,8 +6,33 @@ from app.models.user import User
 from app.schemas.user import UserCreate, UserOut, Token
 from app.services import auth
 from app.core.config import settings
+from fastapi.security import OAuth2PasswordBearer
+from jose import jwt
+from app.schemas.user import TokenPayload
 
 router = APIRouter()
+
+reusable_oauth2 = OAuth2PasswordBearer(
+    tokenUrl="/api/v1/auth/login"
+)
+
+async def get_current_user(
+    token: str = Depends(reusable_oauth2)
+) -> User:
+    try:
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+        )
+        token_data = TokenPayload(**payload)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Could not validate credentials",
+        )
+    user = await User.get(token_data.sub)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
 
 @router.post("/register", response_model=UserOut)
 async def register(user_in: UserCreate) -> Any:
@@ -44,3 +69,13 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()) -> Any:
         "refresh_token": auth.create_refresh_token(user.id),
         "token_type": "bearer",
     }
+
+@router.post("/api-key", response_model=Any)
+async def generate_api_key(
+    current_user: User = Depends(get_current_user)
+) -> Any:
+    import secrets
+    api_key = secrets.token_urlsafe(32)
+    current_user.api_key = api_key
+    await current_user.save()
+    return {"api_key": api_key}

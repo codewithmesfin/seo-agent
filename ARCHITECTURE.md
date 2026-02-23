@@ -17,7 +17,7 @@ graph TD
         TaskQueue --> Worker[Celery Worker]
         Worker -->|Crawl| Playwright[Playwright Headless]
         Worker -->|Parse| BS4[BeautifulSoup4]
-        Worker -->|API| PSI[Google PageSpeed Insights API]
+        Worker -->|Perf| PlaywrightMetrics[Playwright / CDP Metrics]
         Worker -->|Logic| Scorer[SEO Scoring Engine]
         Worker -->|Logic| Suggester[Suggestion Engine]
         Worker -->|Logic| Competitor[Competitor Analysis]

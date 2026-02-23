@@ -10,7 +10,8 @@ To handle 1 million scans per month (~33,000 scans per day, ~1,400 per hour), th
 - **MongoDB Sharding**: Shard the `pages` and `scans` collections by `user_id` or `domain` to distribute the load across multiple servers.
 - **Indexes**: Ensure proper indexing on `scan_id`, `user_id`, and `created_at` to keep query performance high.
 
-## 3. Crawler Optimization
+## 3. Crawler & Performance Optimization
+- **Resource Intensity**: Local performance metrics gathering using Playwright/CDP is more CPU intensive than API-based methods. Increase CPU allocations for worker nodes.
 - **Proxy Rotation**: Use a proxy service (like Bright Data or Oxylabs) with Playwright to avoid IP bans when crawling at scale.
 - **Headless Management**: Use **Browserless.io** or a similar service to manage headless browser instances at scale instead of running them inside the worker containers.
 
